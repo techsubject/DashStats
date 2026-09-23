@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DashStats</title>
+<link rel="icon" type="image/png" href="./icon.png">
+<style>
+:root{color-scheme:dark;font-family:system-ui,Segoe UI,Arial,sans-serif;background:#10131c;color:#eef1fa}*{box-sizing:border-box}body{margin:0;min-height:100vh;padding:32px 18px;background:radial-gradient(ellipse at 15% 0,#25345b 0,transparent 48%),#10131c}.wrap{width:min(1440px,100%);margin:4vh auto}.card{padding:28px;border:1px solid #30394e;border-radius:18px;background:#191f2d;box-shadow:0 20px 60px #0006}h1{margin:0 0 8px;font-size:28px}p,.hint{color:#b8c1d6;line-height:1.55}.form{display:flex;gap:10px;margin:22px 0 8px}.form input{flex:1;min-width:0;padding:13px 14px;border:1px solid #46516a;border-radius:9px;background:#111622;color:#fff;font:inherit}.form button{padding:12px 18px;border:0;border-radius:9px;background:#829aff;color:#101528;font-weight:700;font-size:15px;cursor:pointer}.form button:disabled{opacity:.6;cursor:wait}.hint{font-size:13px}.load-mode{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:22px 0 8px;color:#cbd3e4}.mode-button{padding:10px 14px;border:1px solid #46516a;border-radius:8px;background:#222b3c;color:#eef1fa;font:inherit;cursor:pointer}.mode-button.active{background:#829aff;color:#101528;border-color:#829aff;font-weight:700}.warning{margin:6px 0 10px;padding:11px 14px;border-left:3px solid #e8b45b;border-radius:5px;background:#28251f;color:#e9d9b8;font-size:14px}#status{margin-top:18px;color:#d1d8e7;white-space:pre-wrap}.profile{margin-top:20px}.profile h2{margin:0 0 15px;font-size:23px}.account-heading{display:flex;align-items:center;gap:10px}.league-badge{width:42px;height:42px;object-fit:contain;image-rendering:pixelated;flex:0 0 auto}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.stat{padding:14px;background:#222b3c;border:1px solid #313d53;border-radius:10px}.stat span{display:block;color:#aeb9ce;font-size:13px;margin-bottom:5px}.stat b{font-size:18px;overflow-wrap:anywhere}.uid{color:#aeb9ce;font-size:13px;overflow-wrap:anywhere}.error{color:#ff9c9c!important}@media(max-width:520px){.card{padding:21px}.form{flex-direction:column}.grid{grid-template-columns:1fr 1fr}}
+.tracks{margin-top:26px}.tracks h2{font-size:20px;margin:0 0 12px}.track-stats{margin:14px 0 18px}.track-controls{display:flex;align-items:center;gap:10px;margin:12px 0 16px;color:#cbd3e4}.track-controls[hidden]{display:none}.track-controls select{padding:9px 12px;border:1px solid #46516a;border-radius:8px;background:#111622;color:#fff;font:inherit}.track-card small{display:block;padding:0 10px 10px;color:#b8c1d6;font-size:12px}.track-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:18px}.track-card{display:block;overflow:hidden;border:1px solid #313d53;border-radius:10px;background:#222b3c;color:#eef1fa;text-decoration:none;transition:transform .15s,border-color .15s}.track-card:hover{transform:translateY(-2px);border-color:#829aff}.track-card img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:#111622}.track-card span{display:block;padding:12px 14px;font-size:15px;overflow-wrap:anywhere}.track-empty{color:#b8c1d6;font-size:14px}@media(max-width:520px){.track-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}</style>
+</head>
+<body><main class="wrap"><section class="card">
+<h1>DashCraft Profile Lookup</h1>
+<p>Enter a DashCraft User ID or paste a profile link. The page extracts the ID from a link such as <code>https://dashcraft.io?u=66d32cc7105029fd91327e8e</code>.</p>
+<div class="load-mode"><span>Track loading</span><button type="button" id="loadVerified" class="mode-button active" aria-pressed="true">Verified only</button><button type="button" id="loadAll" class="mode-button" aria-pressed="false">All tracks</button></div><p class="warning" id="allWarning" hidden>Warning: loading all tracks will take considerably longer.</p><form class="form" id="lookup"><input id="userId" type="text" autocomplete="off" placeholder="User ID or DashCraft profile link" aria-label="User ID or DashCraft profile link" required><button id="submit" type="submit">Load account</button></form>
+<div class="hint">You can also open this page with <code>?u=USER_ID</code> in the URL.</div>
+<div id="status" role="status" aria-live="polite"></div><section class="profile" id="profile" hidden></section><section class="tracks" id="tracks" hidden><h2>Tracks</h2><div id="trackStatus" class="track-empty" role="status" aria-live="polite"></div><div class="track-controls" id="trackControls"><label for="trackFilter">Show tracks</label><select id="trackFilter"><option value="all">All tracks</option><option value="verified">Verified only</option></select></div><div id="trackStats" class="grid track-stats"></div><div id="trackGrid" class="track-grid"></div></section>
+</section></main>
+<script>
+const API='https://api.dashcraft.io';
+const input=document.getElementById('userId');
+const statusBox=document.getElementById('status');
+const profile=document.getElementById('profile');
+const submitButton=document.getElementById('submit');
+const tracksBox=document.getElementById('tracks');
+const trackStatus=document.getElementById('trackStatus');
+const trackStats=document.getElementById('trackStats');
+const trackGrid=document.getElementById('trackGrid');
+const trackControls=document.getElementById('trackControls');
+const trackFilter=document.getElementById('trackFilter');
+const warning=document.getElementById('allWarning');
+const loadVerifiedButton=document.getElementById('loadVerified');
+const loadAllButton=document.getElementById('loadAll');
+let loadMode='verified';
+let trackCollections={all:[],verified:[]};
+let currentUserId='';
+let activeScan=0;
+function extractId(value){
+  const raw=value.trim();if(!raw)return '';
+  try{if(/^https?:\/\//i.test(raw)){const url=new URL(raw);return url.searchParams.get('u')||url.searchParams.get('userId')||url.searchParams.get('id')||'';}}catch{}
+  if(raw.includes('?')){try{const url=new URL(raw,'https://dashcraft.io');return url.searchParams.get('u')||url.searchParams.get('userId')||url.searchParams.get('id')||'';}catch{}}
+  return raw.replace(/^https?:\/\/(?:www\.)?dashcraft\.io\/?\?u=/i,'').split(/[&#]/)[0].trim();
+}
+function setLoadMode(mode){
+  loadMode=mode;const verified=mode==='verified';
+  loadVerifiedButton.classList.toggle('active',verified);loadVerifiedButton.setAttribute('aria-pressed',String(verified));
+  loadAllButton.classList.toggle('active',!verified);loadAllButton.setAttribute('aria-pressed',String(!verified));warning.hidden=verified;
+  if(!submitButton.disabled&&currentUserId&&tracksBox.hidden===false)showTracks(currentUserId,loadMode);
+}
+loadVerifiedButton.addEventListener('click',()=>setLoadMode('verified'));
+loadAllButton.addEventListener('click',()=>setLoadMode('all'));
+function stat(label,value){const box=document.createElement('div');box.className='stat';const title=document.createElement('span');title.textContent=label;const val=document.createElement('b');val.textContent=String(value??0);box.append(title,val);return box;}
+function number(value){return Number(value||0).toLocaleString();}
+function trackId(track){return String(track?._id||track?.trackId||track?.id||'');}
+function formatTime(ms){const seconds=Math.max(0,Number(ms)||0)/1000;const minutes=Math.floor(seconds/60);return minutes?`${minutes}m ${(seconds%60).toFixed(2)}s`:`${seconds.toFixed(2)}s`;}
+async function fetchTrackPage(page,verifiedOnly){
+  const url=`${API}/trackv2/global3?sort=new&verifiedOnly=${verifiedOnly}&page=${page}&pageSize=50`;
+  const response=await fetch(url,{headers:{Accept:'application/json'}});
+  if(!response.ok)throw new Error(`Track index returned error ${response.status}.`);
+  const json=await response.json();if(!Array.isArray(json.tracks))throw new Error('Unexpected response from the DashCraft track index.');return json.tracks;
+}
+async function fetchTrackDetail(id){
+  const response=await fetch(`${API}/trackv2/${encodeURIComponent(id)}?supportsLaps1=true`,{headers:{Accept:'application/json'}});
+  if(!response.ok)throw new Error(`Loading track details returned error ${response.status}.`);
+  return response.json();
+}
+async function fetchTrackIds(verifiedOnly,serial){
+  const ids=[];let page=0,done=false;
+  while(!done){
+    if(serial!==activeScan)return null;
+    const pageNumbers=Array.from({length:20},(_,i)=>page+i);
+    const pageResults=await Promise.all(pageNumbers.map(pageNumber=>fetchTrackPage(pageNumber,verifiedOnly)));
+    for(let i=0;i<pageResults.length;i++){
+      const rows=pageResults[i];for(const row of rows){const tid=trackId(row);if(tid)ids.push(tid);}
+      if(rows.length<50){page+=i+1;done=true;break;}
+    }
+    if(!done)page+=pageResults.length;
+    trackStatus.textContent=`Loading ${verifiedOnly?'verified':'all'} track index… ${number(ids.length)} IDs found`;
+  }
+  return ids;
+}
+async function scanUserTracks(id,serial,mode){
+  const allIds=await fetchTrackIds(mode==='verified',serial);
+  if(serial!==activeScan||!allIds)return null;
+  const verifiedIds=mode==='verified'?allIds:await fetchTrackIds(true,serial);
+  if(serial!==activeScan||!verifiedIds)return null;
+  const verifiedSet=new Set(verifiedIds),ownedAll=[],ownedVerified=[],recentVerified=[];
+  let total=0;
+  for(let offset=0;offset<allIds.length;offset+=40){
+    if(serial!==activeScan)return null;
+    const batchIds=allIds.slice(offset,offset+40);
+    const tracks=await Promise.all(batchIds.map(fetchTrackDetail));total+=tracks.length;
+    for(let i=0;i<tracks.length;i++){
+      const track=tracks[i],tid=trackId(track)||batchIds[i];if(!track._id)track._id=tid;
+      const isVerified=verifiedSet.has(tid);
+      if(String(track.user?._id||track.userId||'')===id){ownedAll.push(track);if(isVerified)ownedVerified.push(track);}
+      if(isVerified&&recentVerified.length<25)recentVerified.push(track);
+    }
+    trackStatus.textContent=`Loading track details… ${number(total)} of ${number(allIds.length)} fetched; ${number(ownedAll.length)} by this user`;
+  }
+  const placements=[];
+  for(const track of recentVerified){const board=Array.isArray(track.leaderboard)?track.leaderboard:[];board.forEach((entry,index)=>{if(String(entry.user?._id||entry.userId||'')===id)placements.push({rank:index+1,time:Number(entry.time)||0});});}
+  const denominator=Math.max(recentVerified.length,1);
+  const dcPoints=placements.reduce((sum,item)=>sum+Math.ceil(Math.pow(1.051271,-(item.rank-1))*1000000/denominator),0);
+  const tmPoints=placements.reduce((sum,item)=>sum+Math.round(1000000/denominator/item.rank),0);
+  const wins=placements.filter(item=>item.rank===1).length;
+  const avgPosition=placements.length?placements.reduce((sum,item)=>sum+item.rank,0)/placements.length:0;
+  const totalTime=placements.reduce((sum,item)=>sum+item.time,0);
+  const likes=ownedVerified.reduce((sum,track)=>sum+(Number(track.likesCount)||0),0);
+  const dislikes=ownedVerified.reduce((sum,track)=>sum+(Number(track.dislikesCount)||0),0);
+  return {ownedAll,ownedVerified,total,recentVerifiedCount:recentVerified.length,placements,wins,avgPosition,totalTime,dcPoints,tmPoints,likes,dislikes};
+}
+function renderTrackStats(data){
+  trackStats.replaceChildren();
+  trackStats.append(stat('Verified tracks',number(data.ownedVerified.length)),stat('Points based on',`${number(data.recentVerifiedCount)} newest verified tracks`),stat('Likes on verified tracks',number(data.likes)),stat('Dislikes on verified tracks',number(data.dislikes)),stat('Leaderboard finishes (newest 25)',number(data.placements.length)),stat('Wins (newest 25)',number(data.wins)),stat('Average position (newest 25)',data.avgPosition?data.avgPosition.toFixed(2):'—'),stat('DC points',number(data.dcPoints)),stat('TM points',number(data.tmPoints)),stat('Total time (newest 25)',formatTime(data.totalTime)));
+}
+function renderTracks(tracks){
+  trackGrid.replaceChildren();
+  for(const track of tracks){
+    const tid=trackId(track);if(!tid)continue;
+    const link=document.createElement('a');link.className='track-card';link.href='https://dashcraft.io/?t='+encodeURIComponent(tid);link.target='_blank';link.rel='noopener noreferrer';
+    const image=document.createElement('img');image.loading='lazy';image.src=`https://cdn.dashcraft.io/v2/prod/track-thumbnail/lg/${encodeURIComponent(tid)}.jpg?v=7`;image.alt=track.name||`Track ${tid}`;
+    const title=document.createElement('span');title.textContent=track.name||track.title||'';
+    const detail=document.createElement('small');const leaderboard=Array.isArray(track.leaderboard)?track.leaderboard:[];const playerPosition=leaderboard.findIndex(entry=>String(entry.user?._id||entry.userId||'')===currentUserId);const positionText=playerPosition>=0?`#${playerPosition+1}`:'N/A';detail.textContent=`♥ ${number(track.likesCount)}  ·  ${number(track.dislikesCount)} dislikes  ·  ${number(track.leaderboardTotalCount)} times  ·  Position: ${positionText}`;
+    link.append(image,title,detail);trackGrid.append(link);
+  }
+  trackStatus.textContent=`${number(tracks.length)} ${trackFilter.value==='verified'?'verified ':''}tracks found`;
+}
+async function showTracks(id,mode=loadMode){
+  const serial=++activeScan;currentUserId=id;trackCollections={all:[],verified:[]};tracksBox.hidden=false;trackStatus.className='track-empty';trackStatus.textContent='Preparing track list…';trackGrid.replaceChildren();trackStats.replaceChildren();trackFilter.value=mode==='verified'?'verified':'all';trackControls.hidden=mode==='verified';trackFilter.disabled=true;
+  try{
+    const data=await scanUserTracks(id,serial,mode);if(!data||serial!==activeScan)return;trackFilter.disabled=false;
+    trackCollections={all:data.ownedAll,verified:data.ownedVerified};renderTrackStats(data);
+    const selected=trackCollections[trackFilter.value];renderTracks(selected);
+    if(!selected.length)trackStatus.textContent=`No public ${trackFilter.value==='verified'?'verified ':''}tracks found for this user.`;
+  }catch(error){if(serial!==activeScan)return;trackFilter.disabled=false;trackStatus.className='track-empty error';trackStatus.textContent=`Could not load tracks or stats: ${error.message}`;}
+}
+async function load(value){
+  const id=extractId(value);
+  if(!id){statusBox.textContent='Please enter a valid User ID or a profile link containing ?u=...';statusBox.className='error';tracksBox.hidden=true;return;}
+  activeScan++;currentUserId=id;input.value=id;profile.hidden=true;profile.replaceChildren();tracksBox.hidden=true;trackGrid.replaceChildren();trackStats.replaceChildren();statusBox.className='';statusBox.textContent='Loading account…';submitButton.disabled=true;
+  const url=new URL(location.href);url.searchParams.set('u',id);history.replaceState(null,'',url);
+  try{
+    const response=await fetch(API+'/userv2/'+encodeURIComponent(id),{headers:{Accept:'application/json'}});
+    if(!response.ok)throw new Error(response.status===404?'No account found for this User ID.':`DashCraft API returned error ${response.status}.`);
+    const user=await response.json(),levelData=user.levelData||{};
+    const league=Math.min(10,Math.max(1,Number(user.leagueNr||0)+1));
+    const heading=document.createElement('h2');heading.className='account-heading';
+    const badge=document.createElement('img');badge.className='league-badge';badge.src='leagues/'+league+'.png';badge.alt='League '+league;badge.onerror=()=>{badge.hidden=true;};
+    heading.append(badge,document.createTextNode(user.username||user._id||id));
+    const uid=document.createElement('div');uid.className='uid';uid.textContent='User ID: '+(user._id||id);
+    const grid=document.createElement('div');grid.className='grid';
+    grid.append(stat('Level',Number(levelData.level||0)+1),stat('XP in level',`${number(levelData.xpInLevel)} / ${number(levelData.totalXpInLevel)}`),stat('Total XP',number(levelData.totalXp)),stat('League',league),stat('Followers',number(user.followersCount)),stat('Likes',number(user.likesCount)));
+    profile.append(heading,uid,grid);
+    if(user.createdAt){const created=document.createElement('p');created.className='uid';created.textContent='Account created: '+new Date(user.createdAt).toLocaleDateString();profile.append(created);}
+    profile.hidden=false;statusBox.textContent='Account loaded.';showTracks(id,loadMode);
+  }catch(error){statusBox.className='error';statusBox.textContent=error instanceof TypeError?'Could not reach the DashCraft API. This may be a network or CORS restriction.':error.message;}
+  finally{submitButton.disabled=false;}
+}
+trackFilter.addEventListener('change',()=>{const selected=trackCollections[trackFilter.value]||[];renderTracks(selected);if(!selected.length)trackStatus.textContent=`No public ${trackFilter.value==='verified'?'verified ':''}tracks found for this user.`;});
+document.getElementById('lookup').addEventListener('submit',event=>{event.preventDefault();load(input.value);});
+const initial=new URLSearchParams(location.search).get('u');if(initial){input.value=initial;load(initial);}
+</script></body></html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
